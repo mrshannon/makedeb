@@ -31,6 +31,8 @@ declare pkgrel=""
 declare depends=()
 declare makedepends=()
 declare checkdepends=()
+declare source
+declare sources
 
 # GLOBALS
 
@@ -179,30 +181,35 @@ check_depends() {
 
 
 check_runtime_depends() {
-    print1 "Checking runtime dependencies..."
-    check_depends "${depends[@]}"
-    missing_depends+=("${retval[@]}")
+    if [[ ${#depends[@]} -gt 0 ]]; then
+        print1 "Checking runtime dependencies..."
+        check_depends "${depends[@]}"
+        missing_depends+=("${retval[@]}")
+    fi
 }
 
 
 check_buildtime_depends() {
-    print1 "Checking buildtime dependencies..."
-    check_depends "${makedepends[@]}"
-    missing_depends+=("${retval[@]}")
+    if [[ ${#makedepends[@]} -gt 0 ]]; then
+        print1 "Checking buildtime dependencies..."
+        check_depends "${makedepends[@]}"
+        missing_depends+=("${retval[@]}")
+    fi
 }
 
 
 check_checktime_depends() {
-    print1 "Checking checktime dependencies..."
-    check_depends "${checkdepends[@]}"
-    missing_depends+=("${retval[@]}")
+    if [[ ${#checkdepends[@]} -gt 0 ]]; then
+        print1 "Checking checktime dependencies..."
+        check_depends "${checkdepends[@]}"
+        missing_depends+=("${retval[@]}")
+    fi
 }
 
 
 install_missing_depends() {
     local packages
     local name
-    # local depends=("${missing_depends[@]}" "${missing_makedepends[@]}")
     if [[ $(( ${#missing_depends[@]})) -gt 0 ]]; then
         print1 "Missing dependencies:"
         for package in "${missing_depends[@]}"; do
@@ -264,6 +271,34 @@ cleanup() {
 }
 
 
+retrieve_sources() {
+    print1 "Retrieving sources..."
+    local source_file
+    local name
+    local url
+    # combine source and sources and save them back
+    local tmp_sources=("${source[@]}" "${sources[@]}")
+    source=("${tmp_sources[@]}")
+    sources=("${tmp_sources[@]}")
+    # loop through each source file
+    for source_file in "${sources[@]}"; do
+        url=$(echo "$source_file" | awk -F'::' '{print $2}')
+        name=$(echo "$source_file" | awk -F'::' '{print $1}')
+        if [[ "$(basename "$name")" != "$name" ]]; then
+            url=$name
+            name=$(basename "$name")
+        fi
+        # check if file is already downloaded
+        if [[ -f "${startdir}/${name}" ]]; then
+            print2 "Found ${name}"
+        else
+            print2 "Downloading $name"
+            curl --location --output "${startdir}/${name}" "$url"
+        fi
+    done
+}
+
+
 
 
 
@@ -271,11 +306,13 @@ cleanup() {
 
 trap ctrl_c INT
 trap cleanup EXIT
+declare startdir="$PWD"
+declare srcdir="${startdir}/src"
+declare pkgdir="${startdir}/pkg"
 
 
-
-
-source PKGBUILD
+# source the build script
+. PKGBUILD
 
 
 print_start_message
@@ -283,7 +320,7 @@ check_runtime_depends
 check_buildtime_depends
 check_checktime_depends
 install_missing_depends
-# retrieve_sources
+retrieve_sources
 
 cleanup
 print_completion_message
