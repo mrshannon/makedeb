@@ -1,0 +1,294 @@
+#!/bin/bash
+
+# makedeb - build Debain packages from PKGBUILD files
+# Copyright (C) 2018 Michael R. Shannon <mrshannon.aerospace@gmail.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+
+
+# used for passing function outputs around
+declare retval
+declare missing_depends=()
+declare installed_depends=()
+
+
+declare pkgname=""
+declare pkgver=""
+declare pkgrel=""
+declare depends=()
+declare makedepends=()
+declare checkdepends=()
+
+# GLOBALS
+
+# ansi codes
+declare -r ANSI_RESET='\033[0m'
+declare -r ANSI_BOLD='\033[1m'
+declare -r ANSI_RED='\033[0;31m'
+declare -r ANSI_GREEN='\033[0;32m'
+declare -r ANSI_YELLOW='\033[0;33m'
+declare -r ANSI_BLUE='\033[0;34m'
+
+declare -r EXIT_ON_FAIL=1
+
+
+
+# OPTIONS
+INSTALL_DEPENDS=0
+REMOVE_DEPENDS=0
+
+
+
+
+# FUNCTIONS
+
+print1() {
+    echo -e "${ANSI_GREEN}${ANSI_BOLD}==>${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
+}
+
+print2() {
+    echo -e "  ${ANSI_BLUE}${ANSI_BOLD}->${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
+}
+
+
+print3() {
+    echo "      $1"
+}
+
+
+warn() {
+    echo -e "${ANSI_YELLOW}${ANSI_BOLD}==> WARNING:${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
+}
+
+
+error() {
+    echo -e "${ANSI_RED}${ANSI_BOLD}==> ERROR:${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
+    if [[ "$EXIT_ON_FAIL" -ne 0 ]]; then
+        exit 1
+    fi
+}
+
+date_string() {
+    date -u '+%a %d %b %Y %r UTC'
+    # date -u '+%F %T UTC'
+}
+
+print_start_message() {
+    print1 "Making package: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+}
+
+
+print_completion_message() {
+    print1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+}
+
+
+ctrl_c() {
+    echo -e "\nExiting..."
+    exit 1
+}
+
+
+# https://stackoverflow.com/a/24067243
+version_gt() {
+    test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
+}
+
+version_compare() {
+    local first=$1
+    local op=$2
+    local second=$3
+    
+    case "$op" in
+        "<")
+            version_gt "$second" "$first"
+            ;;
+        "<=")
+            test "$first" == "$second" || version_gt "$second" "$first"
+            ;;
+        "==")
+            test "$first" == "$second"
+            ;;
+        ">=")
+            test "$first" == "$second" || version_gt "$first" "$second"
+            ;;
+        ">")
+            version_gt "$first" "$second"
+            ;;
+        *)
+            error "Invalid operator $op"
+            exit 1
+            ;;
+    esac
+    return $?
+}
+
+check_depends() {
+    local package
+    local packages
+    local name
+    local op
+    local required_version
+    local installed_version
+    local found
+    retval=()
+    for package_string in "$@"; do
+        # convert an alternative list with | into an array
+        packages=(${package_string//|/})
+        found=""
+        for package in "${packages[@]}"; do
+            name=$(echo "$package" | grep -o '^[^<=>]*')
+            op=$(echo "$package" | grep -Po "(?<=^$name)"'[<=>]*')
+            required_version=$(echo "$package" | \
+                grep -Po "(?<=^$name$op)"'[0-9\.]*')
+            installed_version=$(dpkg -s "${name}" 2>/dev/null | \
+                grep -Po '(?<=Version: )[0-9\.]*')
+            if [[ -n "$installed_version" ]]; then
+                if [[ -n "$required_version" ]]; then
+                    if ! version_compare "$installed_version" "$op" \
+                            "$required_version"; then
+                        local msg
+                        msg="${name}'s installed version "
+                        msg="${msg}(${installed_version}) is not ${op} "
+                        msg="${msg}${required_version}"
+                        error "$msg"
+                    fi
+                fi
+                print2 "Found ${name}"
+                found=1
+            fi
+        done
+        if [[ -z "$found" ]]; then
+            retval+=("${package_string}")
+        fi
+    done
+}
+
+
+check_runtime_depends() {
+    print1 "Checking runtime dependencies..."
+    check_depends "${depends[@]}"
+    missing_depends+=("${retval[@]}")
+}
+
+
+check_buildtime_depends() {
+    print1 "Checking buildtime dependencies..."
+    check_depends "${makedepends[@]}"
+    missing_depends+=("${retval[@]}")
+}
+
+
+check_checktime_depends() {
+    print1 "Checking checktime dependencies..."
+    check_depends "${checkdepends[@]}"
+    missing_depends+=("${retval[@]}")
+}
+
+
+install_missing_depends() {
+    local packages
+    local name
+    # local depends=("${missing_depends[@]}" "${missing_makedepends[@]}")
+    if [[ $(( ${#missing_depends[@]})) -gt 0 ]]; then
+        print1 "Missing dependencies:"
+        for package in "${missing_depends[@]}"; do
+            print2 "$package"
+        done
+        if [[ -z "$INSTALL_DEPENDS" ]]; then
+            local msg
+            msg="Would you like to install the required dependencies? (y/N): "
+            read -p "$msg" -n 1 -r
+            echo ""
+            if [[ "$REPLY" == "y" || "$REPLY" == "Y" ]]; then
+                INSTALL_DEPENDS=1
+            fi
+        fi
+        if [[ "$INSTALL_DEPENDS" -ne 0 ]]; then
+            print1 "Installing dependencies..."
+            sudo -k
+            for package in "${missing_depends[@]}"; do
+                packages=(${package//|/})
+                name=$(echo "${packages[0]}" | grep -o '^[^<=>]*')
+                print2 "${name}"
+                if sudo apt-get install --yes "${name}"; then
+                    sudo apt-mark auto "${name}"
+                    installed_depends+=("${name}")
+                else
+                    error "Failed to install ${name}."
+                fi
+            done
+        else
+            error "Could not resolve all dependencies."
+        fi
+    fi
+}
+
+
+cleanup() {
+    if [[ ${#installed_depends[@]} -gt 0 ]]; then
+        if [[ -z "$REMOVE_DEPENDS" ]]; then
+            local msg
+            msg="Would you like to remove the build dependencies installed "
+            msg="${msg} earlier? (y/N): "
+            read -p "$msg" -n 1 -r
+            echo ""
+            if [[ "$REPLY" == "y" || "$REPLY" == "Y" ]]; then
+                REMOVE_DEPENDS=1
+            fi
+        fi
+        if [[ "$REMOVE_DEPENDS" -ne 0 ]]; then
+            print1 "Removing dependencies installed earlier..."
+            for package in "${installed_depends[@]}"; do
+                print2 "${package}"
+                if ! sudo apt-get purge --yes "${package}"; then
+                    warn "Failed to remove ${package}."
+                fi
+            done
+        fi
+        installed_depends=()
+    fi
+}
+
+
+
+
+
+# BEGIN SCRIPT
+
+trap ctrl_c INT
+trap cleanup EXIT
+
+
+
+
+source PKGBUILD
+
+
+print_start_message
+check_runtime_depends
+check_buildtime_depends
+check_checktime_depends
+install_missing_depends
+# retrieve_sources
+
+cleanup
+print_completion_message
+
+
+
+
+
