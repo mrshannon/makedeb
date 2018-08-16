@@ -35,6 +35,21 @@ declare checkdepends=()
 declare source=()
 declare sources=()
 declare noextract=()
+declare section=""
+declare priority="optional"
+declare essential="no"
+declare maintainer=""
+declare pkgdesc=""
+declare pkglong=""
+declare url=""
+declare predepends=()
+declare suggests=()
+declare enhances=()
+declare replaces=()
+declare conflicts=()
+declare provides=()
+declare arch=""
+
 
 # GLOBALS
 
@@ -86,18 +101,25 @@ error() {
     fi
 }
 
+
+# https://stackoverflow.com/a/17841619
+join() {
+    local d=$1
+    shift
+    echo -n "$1"
+    shift
+    printf "%s" "${@/#/$d}"
+}
+
+
+strip() {
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+
 date_string() {
     date -u '+%a %d %b %Y %r UTC'
     # date -u '+%F %T UTC'
-}
-
-print_start_message() {
-    print1 "Making package: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
-}
-
-
-print_completion_message() {
-    print1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
 }
 
 
@@ -111,6 +133,7 @@ ctrl_c() {
 version_gt() {
     test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
 }
+
 
 version_compare() {
     local first=$1
@@ -141,6 +164,36 @@ version_compare() {
     return $?
 }
 
+
+# reads the maintainer from the comment at the top of the PKGBUILD file, this
+# is here for compatibility with Arch Linux makepkg, you should explicitly set
+# the maintainer field in PKGBUILD for makedeb
+read_maintainer() {
+    maintainer=$(grep -Po '(?<=Maintainer:).*$' PKGBUILD)
+    maintainer=$(echo "$maintainer" | strip)
+}
+
+
+print_start_message() {
+    print1 "Making package: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+}
+
+
+# validates entries in the sourced PKGBUILD file, which must be sourced before
+# calling this function.
+validate_pkgbuild() {
+    local tmp=()
+    # combine source and sources and save them back
+    tmp=("${source[@]}" "${sources[@]}")
+    source=("${tmp[@]}")
+    sources=("${tmp[@]}")
+    # combine optdepends and recommends and save them back
+    tmp=("${optdepends[@]}" "${recommends[@]}")
+    optdepends=("${tmp[@]}")
+    recommends=("${tmp[@]}")
+}
+
+
 check_depends() {
     local package
     local packages
@@ -152,12 +205,12 @@ check_depends() {
     retval=()
     for package_string in "$@"; do
         # convert an alternative list with | into an array
-        packages=(${package_string//|/})
+        IFS='|' read -r -a packages <<< "${package_string}"
         found=""
         for package in "${packages[@]}"; do
-            name=$(echo "$package" | grep -o '^[^<=>]*')
-            op=$(echo "$package" | grep -Po "(?<=^$name)"'[<=>]*')
-            required_version=$(echo "$package" | \
+            name=$(echo "$package" | strip | grep -o '^[^<=>]*')
+            op=$(echo "$package" | strip | grep -Po "(?<=^$name)"'[<=>]*')
+            required_version=$(echo "$package" | strip | \
                 grep -Po "(?<=^$name$op)"'[0-9\.]*')
             installed_version=$(dpkg -s "${name}" 2>/dev/null | \
                 grep -Po '(?<=Version: )[0-9\.]*')
@@ -248,41 +301,11 @@ install_missing_depends() {
 }
 
 
-cleanup() {
-    if [[ ${#installed_depends[@]} -gt 0 ]]; then
-        if [[ -z "$REMOVE_DEPENDS" ]]; then
-            local msg
-            msg="Would you like to remove the build dependencies installed "
-            msg="${msg} earlier? (y/N): "
-            read -p "$msg" -n 1 -r
-            echo ""
-            if [[ "$REPLY" == "y" || "$REPLY" == "Y" ]]; then
-                REMOVE_DEPENDS=1
-            fi
-        fi
-        if [[ "$REMOVE_DEPENDS" -ne 0 ]]; then
-            print1 "Removing dependencies installed earlier..."
-            for package in "${installed_depends[@]}"; do
-                print2 "${package}"
-                if ! sudo apt-get purge --yes "${package}"; then
-                    warn "Failed to remove ${package}."
-                fi
-            done
-        fi
-        installed_depends=()
-    fi
-}
-
-
 retrieve_sources() {
     print1 "Retrieving sources..."
     local source_file
     local name
     local url
-    # combine source and sources and save them back
-    local tmp_sources=("${source[@]}" "${sources[@]}")
-    source=("${tmp_sources[@]}")
-    sources=("${tmp_sources[@]}")
     # loop through each source file
     for source_file in "${sources[@]}"; do
         url=$(echo "$source_file" | awk -F'::' '{print $2}')
@@ -358,6 +381,7 @@ _validate_sources() {
 
 
 extract_sources() {
+    mkdir -p "${srcdir}"
     print1 "Extracting sources"
     for file in "${source_files[@]}"; do
         local extract=1
@@ -411,15 +435,179 @@ run_check() {
 
 
 run_package() {
-    if [[ "$(type -t package)" == "function" ]]; then
-        print1 "Starting package()"
-        fakeroot bash <<EOF
+    if [[ "$(type -t package)" != "function" ]]; then
+        error "No package() function in PKGBUILD."
+    fi
+    mkdir -p "${pkgdir}"
+    print1 "Starting package()"
+    fakeroot bash <<EOF
 declare startdir=${startdir}
 declare srcdir=${srcdir}
 declare pkgdir=${pkgdir}
 . "${startdir}/PKGBUILD"
 package
 EOF
+}
+
+
+make_debian() {
+    mkdir -p "${pkgdir}/DEBIAN"
+    local control="${pkgdir}/DEBIAN/control"
+    true >"${control}"
+
+    # Package
+    echo "Package: ${pkgname}" >>"${control}"
+
+    # Version
+    echo "Version: ${pkgver}" >>"${control}"
+
+    # Section
+    if [[ -n "${section}" ]]; then
+        echo "Section: ${section}" >>"${control}"
+    fi
+
+    # Priority
+    if [[ -n "${priority}" ]]; then
+        echo "Priority: ${priority}" >>"${control}"
+    fi
+
+    # Architecture
+    local debarch=""
+    case "${arch}" in
+        any)
+            debarch=any
+            ;;
+        i686)
+            debarch=i386
+            ;;
+        x86_64)
+            debarch=amd64
+            ;;
+        *)
+            debarch=$arch
+    esac
+    echo "Architecture: ${debarch}" >>"${control}"
+
+    # Essential
+    if [[ -n "${essential}" ]]; then
+        echo "Essential: ${essential}" >>"${control}"
+    fi
+
+    # Depends
+    if [[ ${#depends[@]} -gt 0 ]]; then
+        echo "Depends: $(dependency_string "${depends[@]}")" >>"${control}"
+    fi
+
+    # Pre-Depends
+    if [[ ${#predepends[@]} -gt 0 ]]; then
+        echo "Pre-Depends: $(dependency_string "${predepends[@]}")" >>"${control}"
+    fi
+
+    # Recommends
+    if [[ ${#recommends[@]} -gt 0 ]]; then
+        echo "Recommends: $(dependency_string "${recommends[@]}")" >>"${control}"
+    fi
+
+    # Suggests
+    if [[ ${#suggests[@]} -gt 0 ]]; then
+        echo "Suggests: $(dependency_string "${suggests[@]}")" >>"${control}"
+    fi
+
+    # Enhances
+    if [[ ${#enhances[@]} -gt 0 ]]; then
+        echo "Enhances: $(dependency_string "${enhances[@]}")" >>"${control}"
+    fi
+
+    # Breaks and Replaces
+    if [[ ${#replaces[@]} -gt 0 ]]; then
+        echo "Breaks: $(dependency_string "${replaces[@]}")" >>"${control}"
+        echo "Replaces: $(dependency_string "${replaces[@]}")" >>"${control}"
+    fi
+
+    # Conflicts
+    if [[ ${#conflicts[@]} -gt 0 ]]; then
+        echo "Conflicts: $(dependency_string "${conflicts[@]}")" >>"${control}"
+    fi
+
+    # Provides
+    if [[ ${#provides[@]} -gt 0 ]]; then
+        echo "Provides: $(dependency_string "${provides[@]}")" >>"${control}"
+    fi
+
+    # Installed-Size
+    local size
+    size=$(du -ks --apparent-size "${pkgdir}" | cut -f1)
+    echo "Installed-Size: ${size}" >>"${control}"
+
+    # Maintainer
+    echo "Maintainer: ${maintainer}" >>"${control}"
+
+    # Homepage
+    if [[ -n "${url}" ]]; then
+        echo "Homepage: ${url}" >>"${control}"
+    fi
+
+    # Description
+    echo "Description: ${pkgdesc}" >>"${control}"
+    echo "${pkglong}" | sed -e 's/^/ /g' >>"${control}"
+}
+
+
+dependency_string() {
+    local name
+    local op
+    local version
+    local packages
+    local tmp
+    local dependencies=()
+    for package_string in "$@"; do
+        # convert an alternative list with | into an array
+        IFS='|' read -r -a packages <<< "${package_string}"
+        tmp=()
+        for package in "${packages[@]}"; do
+            name=$(echo "$package" | strip | grep -o '^[^<=>]*')
+            op=$(echo "$package" | strip | grep -Po "(?<=^$name)"'[<=>]*')
+            version=$(echo "$package" | strip | \
+                grep -Po "(?<=^$name$op)"'[0-9\.]*')
+            if [[ -n ${version} ]]; then
+                tmp+=("${name} (${op} ${version})")
+            else
+                tmp+=("${name}")
+            fi
+        done
+        dependencies+=("$(join ' | ' "${tmp[@]}")")
+    done
+    join ', ' "${dependencies[@]}"
+}
+
+
+print_completion_message() {
+    print1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+}
+
+
+cleanup() {
+    if [[ ${#installed_depends[@]} -gt 0 ]]; then
+        if [[ -z "$REMOVE_DEPENDS" ]]; then
+            local msg
+            msg="Would you like to remove the build dependencies installed "
+            msg="${msg} earlier? (y/N): "
+            read -p "$msg" -n 1 -r
+            echo ""
+            if [[ "$REPLY" == "y" || "$REPLY" == "Y" ]]; then
+                REMOVE_DEPENDS=1
+            fi
+        fi
+        if [[ "$REMOVE_DEPENDS" -ne 0 ]]; then
+            print1 "Removing dependencies installed earlier..."
+            for package in "${installed_depends[@]}"; do
+                print2 "${package}"
+                if ! sudo apt-get purge --yes "${package}"; then
+                    warn "Failed to remove ${package}."
+                fi
+            done
+        fi
+        installed_depends=()
     fi
 }
 
@@ -430,26 +618,32 @@ EOF
 
 trap ctrl_c INT
 trap cleanup EXIT
+
+
+
+
 # source the build script
+read_maintainer
 . PKGBUILD
+validate_pkgbuild
+
 declare startdir="$PWD"
 declare srcdir="${startdir}/src"
 declare pkgdir="${startdir}/${pkgname}-${pkgver}-${pkgrel}"
 
-
 print_start_message
-check_runtime_depends
+# check_runtime_depends
 check_buildtime_depends
 check_checktime_depends
 install_missing_depends
 retrieve_sources
 validate_sources
-mkdir -p "${srcdir}"
 extract_sources
 run_prepare
 run_build
 run_check
-mkdir -p "${pkgdir}"
 run_package
+make_debian
+# build_deb
 cleanup
 print_completion_message
