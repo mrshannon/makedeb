@@ -386,17 +386,55 @@ extract_sources() {
 }
 
 
+run_prepare() {
+    if [[ "$(type -t prepare)" == "function" ]]; then
+        print1 "Starting prepare()"
+        prepare
+    fi
+}
+
+
+run_build() {
+    if [[ "$(type -t build)" == "function" ]]; then
+        print1 "Starting build()"
+        build
+    fi
+}
+
+
+run_check() {
+    if [[ "$(type -t check)" == "function" ]]; then
+        print1 "Starting check()"
+        check
+    fi
+}
+
+
+run_package() {
+    if [[ "$(type -t package)" == "function" ]]; then
+        print1 "Starting package()"
+        fakeroot bash <<EOF
+declare startdir=${startdir}
+declare srcdir=${srcdir}
+declare pkgdir=${pkgdir}
+. "${startdir}/PKGBUILD"
+package
+EOF
+    fi
+}
+
+
+
+
 # BEGIN SCRIPT
 
 trap ctrl_c INT
 trap cleanup EXIT
-declare startdir="$PWD"
-declare srcdir="${startdir}/src"
-declare pkgdir="${startdir}/pkg"
-
-
 # source the build script
 . PKGBUILD
+declare startdir="$PWD"
+declare srcdir="${startdir}/src"
+declare pkgdir="${startdir}/${pkgname}-${pkgver}-${pkgrel}"
 
 
 print_start_message
@@ -408,8 +446,10 @@ retrieve_sources
 validate_sources
 mkdir -p "${srcdir}"
 extract_sources
+run_prepare
+run_build
+run_check
 mkdir -p "${pkgdir}"
-
-
+run_package
 cleanup
 print_completion_message
