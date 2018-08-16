@@ -34,7 +34,7 @@ declare makedepends=()
 declare checkdepends=()
 declare source=()
 declare sources=()
-declare sha1sums=()
+declare noextract=()
 
 # GLOBALS
 
@@ -294,11 +294,13 @@ retrieve_sources() {
         # check if file is already downloaded
         if [[ -f "${startdir}/${name}" ]]; then
             print2 "Found ${name}"
-        else
+        elif [[ -n "${name}" && -n "${url}" ]]; then
             print2 "Downloading ${name}"
             if ! curl --location --output "${startdir}/${name}" "$url"; then
                 error "Failed to download '${name}' from ${url}"
             fi
+        else
+            error "File ${name} does not exist."
         fi
         source_files+=("$name")
     done
@@ -307,19 +309,19 @@ retrieve_sources() {
 
 validate_sources() {
     local failed=0
-    if _validate_sources md5sum; then
+    if ! _validate_sources md5sum; then
         failed=1
     fi
-    if _validate_sources sha1sum; then
+    if ! _validate_sources sha1sum; then
         failed=1
     fi
-    if _validate_sources sha256sum; then
+    if ! _validate_sources sha256sum; then
         failed=1
     fi
-    if _validate_sources sha384sum; then
+    if ! _validate_sources sha384sum; then
         failed=1
     fi
-    if _validate_sources sha512; then
+    if ! _validate_sources sha512; then
         failed=1
     fi
     if [[ $failed -gt 0 ]]; then
@@ -355,6 +357,34 @@ _validate_sources() {
 }
 
 
+extract_sources() {
+    print1 "Extracting sources"
+    for file in "${source_files[@]}"; do
+        local extract=1
+        for exception in "${noextract[@]}"; do
+            if [[ $(basename "$exception") == "$(basename "$file")" ]]; then
+                extract=0
+            fi
+        done
+        if [[ $extract -gt 0 ]]; then
+            case ${file,,} in
+                *.tar|*.zip|*.tar.bz2|*.tar.gz|*.tar.xz|*.tbz2|*.tgz|*.txz|*.7z)
+                    print2 "Extracting ${file} with bsdtar"
+                    if ! bsdtar -C "${srcdir}" -xf "${startdir}/${file}"; then
+                        error "Failed to extract $file"
+                    fi
+                    ;;
+                *)
+                    extract=0
+                    ;;
+            esac
+        fi
+        if [[ $extract -eq 0 ]]; then
+            cp "${startdir}/${file}" "${srcdir}/${file}"
+        fi
+    done
+}
+
 
 # BEGIN SCRIPT
 
@@ -376,6 +406,10 @@ check_checktime_depends
 install_missing_depends
 retrieve_sources
 validate_sources
+mkdir -p "${srcdir}"
+extract_sources
+mkdir -p "${pkgdir}"
+
 
 cleanup
 print_completion_message
