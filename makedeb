@@ -49,6 +49,10 @@ declare replaces=()
 declare conflicts=()
 declare provides=()
 declare arch=""
+declare copyright=""
+declare changelog=""
+declare backup=()
+declare conffiles=()
 
 
 # GLOBALS
@@ -191,6 +195,10 @@ validate_pkgbuild() {
     tmp=("${optdepends[@]}" "${recommends[@]}")
     optdepends=("${tmp[@]}")
     recommends=("${tmp[@]}")
+    # combine backup and conffiles and save them back
+    tmp=("${backup[@]}" "${conffiles[@]}")
+    backup=("${tmp[@]}")
+    conffiles=("${tmp[@]}")
 }
 
 
@@ -450,8 +458,51 @@ EOF
 }
 
 
+install_docs() {
+    print1 "Installing docs..."
+    install_copyright
+    install_changelog
+}
+
+
+install_copyright() {
+    if [[ -n "${copyright}" ]]; then
+        if [[ -f "${startdir}/${changelog}" ]]; then
+            print2 "copyright"
+            mkdir -p "${pkgdir}/usr/share/doc/${pkgname}"
+            cat "${startdir}/${copyright}" >\
+                "${pkgdir}/usr/share/doc/${pkgname}/copyright"
+        else
+            error "Cannot find changelog file: ${changelog}"
+        fi
+    fi
+}
+
+
+install_changelog() {
+    if [[ -n "${changelog}" ]]; then
+        if [[ -f "${startdir}/${changelog}" ]]; then
+            print1 "changelog.Debian.gz"
+            mkdir -p "${pkgdir}/usr/share/doc/${pkgname}"
+            gzip < "${startdir}/${changelog}" >\
+                "${pkgdir}/usr/share/doc/${pkgname}/changelog.Debian.gz"
+        else
+            error "Cannot find changelog file: ${changelog}"
+        fi
+    fi
+}
+
+
 make_debian() {
+    print1 "Creating DEBIAN directory..."
     mkdir -p "${pkgdir}/DEBIAN"
+    make_debian_control
+    make_debian_conffiles
+}
+
+
+make_debian_control() {
+    print2 "DEBIAN/control"
     local control="${pkgdir}/DEBIAN/control"
     true >"${control}"
 
@@ -581,6 +632,23 @@ dependency_string() {
 }
 
 
+make_debian_conffiles() {
+    if [[ ${#conffiles[@]} -gt 0 ]]; then
+        print2 "DEBIAN/conffiles"
+        local outfile="${pkgdir}/DEBIAN/conffiles"
+        true >"${outfile}"
+        for file in "${conffiles[@]}"; do
+            echo "/${file}" >>"${outfile}"
+        done
+    fi
+}
+
+
+build_deb() {
+    print1 "Creating package '${pkgname}'..."
+}
+
+
 print_completion_message() {
     print1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
 }
@@ -643,7 +711,8 @@ run_prepare
 run_build
 run_check
 run_package
+install_docs
 make_debian
-# build_deb
+build_deb
 cleanup
 print_completion_message
