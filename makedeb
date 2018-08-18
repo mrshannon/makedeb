@@ -53,6 +53,9 @@ declare copyright=""
 declare changelog=""
 declare backup=()
 declare conffiles=()
+declare install=""
+
+
 
 
 # GLOBALS
@@ -72,7 +75,6 @@ declare -r EXIT_ON_FAIL=1
 # OPTIONS
 INSTALL_DEPENDS=0
 REMOVE_DEPENDS=0
-
 
 
 
@@ -498,6 +500,10 @@ make_debian() {
     mkdir -p "${pkgdir}/DEBIAN"
     make_debian_control
     make_debian_conffiles
+    make_debian_preinst
+    make_debian_postinst
+    make_debian_prerm
+    make_debian_postrm
 }
 
 
@@ -643,6 +649,173 @@ make_debian_conffiles() {
     fi
 }
 
+# returns true (0) if the file ($1) contains the function $($2)
+has_function() {
+    grep -q 'function\s*'"$1" "$2" || grep -q "$1"'\s*(\s*)' "$2"
+}
+
+
+make_debian_preinst() {
+    if [[ -n "$install" && -f "${startdir}/${install}" ]] && \
+        (has_function pre_install "${startdir}/${install}" || \
+         has_function pre_upgrade "${startdir}/${install}")
+    then
+        print2 "DEBIAN/preinst"
+        local file="${pkgdir}/DEBIAN/preinst"
+        install -Dm644 "${startdir}/${install}" "$file"
+cat >>"$file" <<EOF
+pkgname=${pkgname}
+pkgver=${pkgver}
+pkgrel=${pkgrel}
+EOF
+        cat >>"$file" <<'EOF'
+
+case "$1" in
+    install)
+        if [[ $# -ge 2 ]]; then
+            if [[ $(type -t pre_upgrade) == "function" ]]; then
+                pre_upgrade "$2" "${pkgver}-${pkgrel}"
+            fi
+        else
+            if [[ $(type -t pre_install) == "function" ]]; then
+                pre_install "${pkgver}-${pkgrel}"
+            fi
+        fi
+        ;;
+    upgrade)
+        if [[ $(type -t pre_install) == "function" ]]; then
+            pre_upgrade "$2" "${pkgver}-${pkgrel}"
+        fi
+        ;;
+esac
+EOF
+    fi
+}
+
+
+make_debian_postinst() {
+    if [[ -n "$install" && -f "${startdir}/${install}" ]] && \
+        (has_function post_install "${startdir}/${install}" || \
+         has_function post_upgrade "${startdir}/${install}")
+    then
+        print2 "DEBIAN/postinst"
+        local file="${pkgdir}/DEBIAN/postinst"
+        install -Dm644 "${startdir}/${install}" "$file"
+cat >>"$file" <<EOF
+pkgname=${pkgname}
+pkgver=${pkgver}
+pkgrel=${pkgrel}
+EOF
+        cat >>"$file" <<'EOF'
+
+case "$1" in
+    configure)
+        if [[ $# -ge 2 ]]; then
+            if [[ $(type -t post_upgrade) == "function" ]]; then
+                post_upgrade "$2" "${pkgver}-${pkgrel}"
+            fi
+        else
+            if [[ $(type -t post_install) == "function" ]]; then
+                post_install "${pkgver}-${pkgrel}"
+            fi
+        fi
+        ;;
+    abort-remove)
+        if [[ $(type -t post_install) == "function" ]]; then
+            post_install "${pkgver}-${pkgrel}"
+        fi
+        ;;
+    abort-upgrade)
+        if [[ $# -ge 2 ]]; then
+            if [[ $(type -t post_install) == "function" ]]; then
+                post_install "${pkgver}-${pkgrel}"
+            fi
+        fi
+        ;;
+esac
+EOF
+    fi
+}
+
+
+make_debian_prerm() {
+    if [[ -n "$install" && -f "${startdir}/${install}" ]] && \
+        has_function pre_remove "${startdir}/${install}"
+    then
+        print2 "DEBIAN/prerm"
+        local file="${pkgdir}/DEBIAN/prerm"
+        install -Dm644 "${startdir}/${install}" "$file"
+cat >>"$file" <<EOF
+pkgname=${pkgname}
+pkgver=${pkgver}
+pkgrel=${pkgrel}
+EOF
+        cat >>"$file" <<'EOF'
+
+case "$1" in
+    remove)
+        if [[ $(type -t pre_remove) == "function" ]]; then
+            pre_remove "${pkgver}-${pkgrel}"
+        fi
+        ;;
+esac
+EOF
+    fi
+}
+
+
+make_debian_postrm() {
+    if [[ -n "$install" && -f "${startdir}/${install}" ]] && \
+        (has_function post_remove "${startdir}/${install}" || \
+         has_function post_purge "${startdir}/${install}")
+    then
+        print2 "DEBIAN/postrm"
+        local file="${pkgdir}/DEBIAN/postrm"
+        install -Dm644 "${startdir}/${install}" "$file"
+cat >>"$file" <<EOF
+pkgname=${pkgname}
+pkgver=${pkgver}
+pkgrel=${pkgrel}
+EOF
+        cat >>"$file" <<'EOF'
+
+case "$1" in
+    remove)
+        if [[ $(type -t post_remove) == "function" ]]; then
+            post_remove "${pkgver}-${pkgrel}"
+        fi
+        ;;
+    purge)
+        if [[ $(type -t purge) == "function" ]]; then
+            purge "${pkgver}-${pkgrel}"
+        fi
+        ;;
+    abort_install)
+        if [[ $# -ge 2 ]]; then
+            if [[ $(type -t post_remove) == "function" ]]; then
+                post_remove "${pkgver}-${pkgrel}"
+                # force Half-Installed state since we can't restore the old
+                # configuration files
+                return 1
+            fi
+        else
+            if [[ $(type -t post_remove) == "function" ]]; then
+                post_remove "${pkgver}-${pkgrel}"
+            fi
+        fi
+        ;;
+    abort-upgrade)
+        if [[ $# -ge 2 ]]; then
+            if [[ $(type -t post_remove) == "function" ]]; then
+                post_remove "${pkgver}-${pkgrel}"
+            fi
+        fi
+        ;;
+esac
+EOF
+    fi
+}
+
 
 build_deb() {
     print1 "Creating package '${pkgname}'..."
@@ -710,9 +883,10 @@ extract_sources
 run_prepare
 run_build
 run_check
-run_package
 install_docs
 make_debian
-build_deb
+run_package
+#update_size
+#build_deb
 cleanup
 print_completion_message
