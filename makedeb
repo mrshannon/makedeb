@@ -175,7 +175,7 @@ version_compare() {
 # is here for compatibility with Arch Linux makepkg, you should explicitly set
 # the maintainer field in PKGBUILD for makedeb
 read_maintainer() {
-    maintainer=$(grep -Po '(?<=Maintainer:).*$' PKGBUILD)
+    maintainer=$(grep -Po '(?<=Maintainer:).*$' "${startdir}/PKGBUILD")
     maintainer=$(echo "$maintainer" | strip)
 }
 
@@ -392,7 +392,7 @@ _validate_sources() {
 
 extract_sources() {
     mkdir -p "${srcdir}"
-    print1 "Extracting sources"
+    print1 "Extracting sources..."
     for file in "${source_files[@]}"; do
         local extract=1
         for exception in "${noextract[@]}"; do
@@ -450,13 +450,7 @@ run_package() {
     fi
     mkdir -p "${pkgdir}"
     print1 "Starting package()"
-    fakeroot bash <<EOF
-declare startdir=${startdir}
-declare srcdir=${srcdir}
-declare pkgdir=${pkgdir}
-. "${startdir}/PKGBUILD"
-package
-EOF
+    package
 }
 
 
@@ -475,7 +469,7 @@ install_copyright() {
             cat "${startdir}/${copyright}" >\
                 "${pkgdir}/usr/share/doc/${pkgname}/copyright"
         else
-            error "Cannot find changelog file: ${changelog}"
+            error "Cannot find copyright file: ${copyright}"
         fi
     fi
 }
@@ -486,8 +480,8 @@ install_changelog() {
         if [[ -f "${startdir}/${changelog}" ]]; then
             print1 "changelog.Debian.gz"
             mkdir -p "${pkgdir}/usr/share/doc/${pkgname}"
-            gzip < "${startdir}/${changelog}" >\
-                "${pkgdir}/usr/share/doc/${pkgname}/changelog.Debian.gz"
+            gzip -9 < "${startdir}/${changelog}" >\
+                "${pkgdir}/usr/share/doc/${pkgname}/changelog.gz"
         else
             error "Cannot find changelog file: ${changelog}"
         fi
@@ -532,7 +526,7 @@ make_debian_control() {
     local debarch=""
     case "${arch}" in
         any)
-            debarch=any
+            debarch=all
             ;;
         i686)
             debarch=i386
@@ -546,7 +540,7 @@ make_debian_control() {
     echo "Architecture: ${debarch}" >>"${control}"
 
     # Essential
-    if [[ -n "${essential}" ]]; then
+    if [[ -n "$essential" && "$essential" != "no" ]]; then
         echo "Essential: ${essential}" >>"${control}"
     fi
 
@@ -592,9 +586,10 @@ make_debian_control() {
     fi
 
     # Installed-Size
-    local size
-    size=$(du -ks --apparent-size "${pkgdir}" | cut -f1)
-    echo "Installed-Size: ${size}" >>"${control}"
+    # local size
+    # size=$(du -ks --apparent-size "${pkgdir}" | cut -f1)
+    # echo "Installed-Size: ${size}" >>"${control}"
+    echo "Installed-Size: __INSTALLED_SIZE__" >>"${control}"
 
     # Maintainer
     echo "Maintainer: ${maintainer}" >>"${control}"
@@ -606,7 +601,9 @@ make_debian_control() {
 
     # Description
     echo "Description: ${pkgdesc}" >>"${control}"
-    echo "${pkglong}" | sed -e 's/^/ /g' >>"${control}"
+    if [[ -n "$pkglong" ]]; then
+        echo "${pkglong}" | sed -e 's/^/ /g' >>"${control}"
+    fi
 }
 
 
@@ -649,6 +646,7 @@ make_debian_conffiles() {
     fi
 }
 
+
 # returns true (0) if the file ($1) contains the function $($2)
 has_function() {
     grep -q 'function\s*'"$1" "$2" || grep -q "$1"'\s*(\s*)' "$2"
@@ -662,12 +660,14 @@ make_debian_preinst() {
     then
         print2 "DEBIAN/preinst"
         local file="${pkgdir}/DEBIAN/preinst"
-        install -Dm644 "${startdir}/${install}" "$file"
-cat >>"$file" <<EOF
+cat >"$file" <<EOF
+#!/bin/bash -e
+
 pkgname=${pkgname}
 pkgver=${pkgver}
 pkgrel=${pkgrel}
 EOF
+        cat "${startdir}/${install}" >>"$file"
         cat >>"$file" <<'EOF'
 
 case "$1" in
@@ -689,6 +689,7 @@ case "$1" in
         ;;
 esac
 EOF
+        chmod 755 "$file"
     fi
 }
 
@@ -700,12 +701,14 @@ make_debian_postinst() {
     then
         print2 "DEBIAN/postinst"
         local file="${pkgdir}/DEBIAN/postinst"
-        install -Dm644 "${startdir}/${install}" "$file"
-cat >>"$file" <<EOF
+cat >"$file" <<EOF
+#!/bin/bash -e
+
 pkgname=${pkgname}
 pkgver=${pkgver}
 pkgrel=${pkgrel}
 EOF
+        cat "${startdir}/${install}" >>"$file"
         cat >>"$file" <<'EOF'
 
 case "$1" in
@@ -734,6 +737,7 @@ case "$1" in
         ;;
 esac
 EOF
+        chmod 755 "$file"
     fi
 }
 
@@ -744,12 +748,14 @@ make_debian_prerm() {
     then
         print2 "DEBIAN/prerm"
         local file="${pkgdir}/DEBIAN/prerm"
-        install -Dm644 "${startdir}/${install}" "$file"
-cat >>"$file" <<EOF
+cat >"$file" <<EOF
+#!/bin/bash -e
+
 pkgname=${pkgname}
 pkgver=${pkgver}
 pkgrel=${pkgrel}
 EOF
+        cat "${startdir}/${install}" >>"$file"
         cat >>"$file" <<'EOF'
 
 case "$1" in
@@ -760,6 +766,7 @@ case "$1" in
         ;;
 esac
 EOF
+        chmod 755 "$file"
     fi
 }
 
@@ -771,12 +778,14 @@ make_debian_postrm() {
     then
         print2 "DEBIAN/postrm"
         local file="${pkgdir}/DEBIAN/postrm"
-        install -Dm644 "${startdir}/${install}" "$file"
-cat >>"$file" <<EOF
+cat >"$file" <<EOF
+#!/bin/bash -e
+
 pkgname=${pkgname}
 pkgver=${pkgver}
 pkgrel=${pkgrel}
 EOF
+        cat "${startdir}/${install}" >>"$file"
         cat >>"$file" <<'EOF'
 
 case "$1" in
@@ -813,12 +822,28 @@ case "$1" in
         ;;
 esac
 EOF
+        chmod 755 "$file"
     fi
+}
+
+
+update_size() {
+    print1 "Updating Installed-Size..."
+    local size
+    size=$(du -ks --apparent-size "${pkgdir}" | cut -f1)
+    sed -i "s/__INSTALLED_SIZE__/${size}/g" "${pkgdir}/DEBIAN/control"
 }
 
 
 build_deb() {
     print1 "Creating package '${pkgname}'..."
+    dpkg-deb --build "${startdir}/${pkgname}-${pkgver}-${pkgrel}"
+}
+
+
+check_deb() {
+    print1 "Linting '${pkgname}-${pkgver}-${pkgrel}.deb'..."
+    lintian "${startdir}/${pkgname}-${pkgver}-${pkgrel}.deb"
 }
 
 
@@ -861,17 +886,17 @@ trap ctrl_c INT
 trap cleanup EXIT
 
 
-
+declare startdir="$PWD"
 
 # source the build script
 read_maintainer
-. PKGBUILD
+. "${startdir}/PKGBUILD"
 validate_pkgbuild
 
-declare startdir="$PWD"
 declare srcdir="${startdir}/src"
 declare pkgdir="${startdir}/${pkgname}-${pkgver}-${pkgrel}"
 
+# pre fakeroot
 print_start_message
 # check_runtime_depends
 check_buildtime_depends
@@ -883,10 +908,92 @@ extract_sources
 run_prepare
 run_build
 run_check
+
+# fakeroot
+print1 "Entering fakeroot environment..."
+    fakeroot bash <<EOF
+
+declare pkgname=""
+declare pkgver=""
+declare pkgrel=""
+declare depends=()
+declare makedepends=()
+declare checkdepends=()
+declare source=()
+declare sources=()
+declare noextract=()
+declare section=""
+declare priority="optional"
+declare essential="no"
+declare maintainer=""
+declare pkgdesc=""
+declare pkglong=""
+declare url=""
+declare predepends=()
+declare suggests=()
+declare enhances=()
+declare replaces=()
+declare conflicts=()
+declare provides=()
+declare arch=""
+declare copyright=""
+declare changelog=""
+declare backup=()
+declare conffiles=()
+declare install=""
+
+declare -r ANSI_RESET='\033[0m'
+declare -r ANSI_BOLD='\033[1m'
+declare -r ANSI_RED='\033[0;31m'
+declare -r ANSI_GREEN='\033[0;32m'
+declare -r ANSI_YELLOW='\033[0;33m'
+declare -r ANSI_BLUE='\033[0;34m'
+
+$(declare -f print1)
+$(declare -f print2)
+$(declare -f print3)
+$(declare -f warn)
+$(declare -f error)
+$(declare -f join)
+$(declare -f strip)
+
+$(declare -f read_maintainer)
+$(declare -f validate_pkgbuild)
+$(declare -f install_docs)
+$(declare -f install_copyright)
+$(declare -f install_changelog)
+$(declare -f make_debian)
+$(declare -f make_debian_control)
+$(declare -f dependency_string)
+$(declare -f make_debian_conffiles)
+$(declare -f has_function)
+$(declare -f make_debian_preinst)
+$(declare -f make_debian_postinst)
+$(declare -f make_debian_prerm)
+$(declare -f make_debian_postrm)
+$(declare -f run_package)
+$(declare -f update_size)
+$(declare -f build_deb)
+
+declare startdir="$startdir"
+
+read_maintainer
+. "${startdir}/PKGBUILD"
+validate_pkgbuild
+declare srcdir="${srcdir}"
+declare pkgdir="${pkgdir}"
+
 install_docs
 make_debian
 run_package
-#update_size
-#build_deb
+update_size
+build_deb
+
+EOF
+print1 "Leaving fakeroot environment..."
+
+
+# post fakeroot
+check_deb
 cleanup
 print_completion_message
