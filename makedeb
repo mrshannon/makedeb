@@ -175,7 +175,7 @@ version_compare() {
 # is here for compatibility with Arch Linux makepkg, you should explicitly set
 # the maintainer field in PKGBUILD for makedeb
 read_maintainer() {
-    maintainer=$(grep -Po '(?<=Maintainer:).*$' "${startdir}/PKGBUILD")
+    maintainer=$(grep -Po -m 1 '(?<=Maintainer:).*$' "${startdir}/PKGBUILD")
     maintainer=$(echo "$maintainer" | strip)
 }
 
