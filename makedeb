@@ -895,6 +895,15 @@ validate_pkgbuild
 
 declare srcdir="${startdir}/src"
 declare pkgdir="${startdir}/${pkgname}-${pkgver}-${pkgrel}"
+declare docdir="${pkgdir}/usr/share/doc/${pkgname}"
+
+# clean
+if [[ "$1" == "clean" ]]; then
+    rm -R "$srcdir"
+    rm -R "$pkgdir"
+    rm -R "${pkgdir}.deb"
+    exit 0
+fi
 
 # pre fakeroot
 print_start_message
@@ -982,6 +991,7 @@ read_maintainer
 validate_pkgbuild
 declare srcdir="${srcdir}"
 declare pkgdir="${pkgdir}"
+declare docdir="${docdir}"
 
 install_docs
 make_debian
