@@ -620,13 +620,15 @@ dependency_string() {
         tmp=()
         for package in "${packages[@]}"; do
             name=$(echo "$package" | strip | grep -o '^[^<=>]*')
-            op=$(echo "$package" | strip | grep -Po "(?<=^$name)"'[<=>]*')
+            # echo "before" 1>&2
+            op=$(echo "$package" | strip | grep -Po "(?<=^${name//+/\\+})"'[<=>]*')
+            # echo "after" 1>&2
             version=$(echo "$package" | strip | \
-                grep -Po "(?<=^$name$op)"'[0-9\.]*')
+                grep -Po "(?<=^${name//+/\\+}${op})"'[0-9\.]*')
             if [[ -n ${version} ]]; then
                 tmp+=("${name} (${op} ${version})")
             else
-                tmp+=("${name}")
+                tmp+=("$name")
             fi
         done
         dependencies+=("$(join ' | ' "${tmp[@]}")")
@@ -835,6 +837,17 @@ update_size() {
 }
 
 
+gen_sums() {
+    cd "${pkgdir}" || exit 1
+    find  -type f ! \
+        -regex '.*.hg.*' ! \
+        -regex '.*?debian-binary.*' ! \
+        -regex '.*?DEBIAN.*' -printf '%P ' | \
+        xargs md5sum > "${pkgdir}/DEBIAN/md5sums"
+    cd "${startdir}"
+}
+
+
 build_deb() {
     print1 "Creating package '${pkgname}'..."
     dpkg-deb --build "${startdir}/${pkgname}-${pkgver}-${pkgrel}"
@@ -987,6 +1000,7 @@ $(declare -f make_debian_prerm)
 $(declare -f make_debian_postrm)
 $(declare -f run_package)
 $(declare -f update_size)
+$(declare -f gen_sums)
 $(declare -f build_deb)
 
 declare startdir="$startdir"
@@ -1002,6 +1016,7 @@ install_docs
 make_debian
 run_package
 update_size
+gen_sums
 build_deb
 
 EOF
