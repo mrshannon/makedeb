@@ -885,8 +885,13 @@ cleanup() {
 trap ctrl_c INT
 trap cleanup EXIT
 
-
 declare startdir="$PWD"
+
+
+if [[ ! -f "${startdir}/PKGBUILD" ]]; then
+    error "No PKGBUILD file found."
+fi
+
 
 # source the build script
 read_maintainer
