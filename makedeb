@@ -73,29 +73,29 @@ declare -r EXIT_ON_FAIL=1
 
 
 # OPTIONS
-INSTALL_DEPENDS=0
+INSTALL_DEPENDS=
 REMOVE_DEPENDS=0
 
 
 
 # FUNCTIONS
 
-print1() {
+msg1() {
     echo -e "${ANSI_GREEN}${ANSI_BOLD}==>${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
 }
 
 
-print2() {
+msg2() {
     echo -e "  ${ANSI_BLUE}${ANSI_BOLD}->${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
 }
 
 
-print3() {
+msg3() {
     echo "      $1"
 }
 
 
-warn() {
+warning() {
     echo -e "${ANSI_YELLOW}${ANSI_BOLD}==> WARNING:${ANSI_RESET}${ANSI_BOLD} ${1}${ANSI_RESET}"
 }
 
@@ -181,7 +181,7 @@ read_maintainer() {
 
 
 print_start_message() {
-    print1 "Making package: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+    msg1 "Making package: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
 }
 
 
@@ -235,7 +235,7 @@ check_depends() {
                         error "$msg"
                     fi
                 fi
-                print2 "Found ${name}"
+                msg2 "Found ${name}"
                 found=1
             fi
         done
@@ -248,7 +248,7 @@ check_depends() {
 
 check_runtime_depends() {
     if [[ ${#depends[@]} -gt 0 ]]; then
-        print1 "Checking runtime dependencies..."
+        msg1 "Checking runtime dependencies..."
         check_depends "${depends[@]}"
         missing_depends+=("${retval[@]}")
     fi
@@ -257,7 +257,7 @@ check_runtime_depends() {
 
 check_buildtime_depends() {
     if [[ ${#makedepends[@]} -gt 0 ]]; then
-        print1 "Checking buildtime dependencies..."
+        msg1 "Checking buildtime dependencies..."
         check_depends "${makedepends[@]}"
         missing_depends+=("${retval[@]}")
     fi
@@ -266,7 +266,7 @@ check_buildtime_depends() {
 
 check_checktime_depends() {
     if [[ ${#checkdepends[@]} -gt 0 ]]; then
-        print1 "Checking checktime dependencies..."
+        msg1 "Checking checktime dependencies..."
         check_depends "${checkdepends[@]}"
         missing_depends+=("${retval[@]}")
     fi
@@ -277,9 +277,9 @@ install_missing_depends() {
     local packages
     local name
     if [[ $(( ${#missing_depends[@]})) -gt 0 ]]; then
-        print1 "Missing dependencies:"
+        msg1 "Missing dependencies:"
         for package in "${missing_depends[@]}"; do
-            print2 "$package"
+            msg2 "$package"
         done
         if [[ -z "$INSTALL_DEPENDS" ]]; then
             local msg
@@ -291,12 +291,12 @@ install_missing_depends() {
             fi
         fi
         if [[ "$INSTALL_DEPENDS" -ne 0 ]]; then
-            print1 "Installing dependencies..."
+            msg1 "Installing dependencies..."
             sudo -k
             for package in "${missing_depends[@]}"; do
                 packages=(${package//|/})
                 name=$(echo "${packages[0]}" | grep -o '^[^<=>]*')
-                print2 "${name}"
+                msg2 "${name}"
                 if sudo apt-get install --yes "${name}"; then
                     sudo apt-mark auto "${name}"
                     installed_depends+=("${name}")
@@ -312,7 +312,7 @@ install_missing_depends() {
 
 
 retrieve_sources() {
-    print1 "Retrieving sources..."
+    msg1 "Retrieving sources..."
     local source_file
     local name
     local url
@@ -326,9 +326,9 @@ retrieve_sources() {
         fi
         # check if file is already downloaded
         if [[ -f "${startdir}/${name}" ]]; then
-            print2 "Found ${name}"
+            msg2 "Found ${name}"
         elif [[ -n "${name}" && -n "${url}" ]]; then
-            print2 "Downloading ${name}"
+            msg2 "Downloading ${name}"
             if ! curl --location --output "${startdir}/${name}" "$url"; then
                 error "Failed to download '${name}' from ${url}"
             fi
@@ -366,7 +366,7 @@ validate_sources() {
 _validate_sources() {
     local -n sums="${1}s"
     if [[ ${#sums[@]} -gt 0 ]]; then
-        print1 "Validating source files with ${1}s..."
+        msg1 "Validating source files with ${1}s..."
         if [[ ${#sums[@]} -ne ${#source_files[@]} ]]; then
             error "'${1}s' array not the same length as the 'source' array."
         fi
@@ -392,7 +392,7 @@ _validate_sources() {
 
 extract_sources() {
     mkdir -p "${srcdir}"
-    print1 "Extracting sources..."
+    msg1 "Extracting sources..."
     for file in "${source_files[@]}"; do
         local extract=1
         for exception in "${noextract[@]}"; do
@@ -402,8 +402,8 @@ extract_sources() {
         done
         if [[ $extract -gt 0 ]]; then
             case ${file,,} in
-                *.tar|*.zip|*.tar.bz2|*.tar.gz|*.tar.xz|*.tbz2|*.tgz|*.txz|*.7z)
-                    print2 "Extracting ${file} with bsdtar"
+                *.tar|*.zip|*.tar.bz2|*.tar.gz|*.tar.xz|*.tbz2|*.tgz|*.txz|*.7z|*.iso|*.tpz)
+                    msg2 "Extracting ${file} with bsdtar"
                     if ! bsdtar -C "${srcdir}" -xf "${startdir}/${file}"; then
                         error "Failed to extract $file"
                     fi
@@ -422,7 +422,7 @@ extract_sources() {
 
 run_prepare() {
     if [[ "$(type -t prepare)" == "function" ]]; then
-        print1 "Starting prepare()"
+        msg1 "Starting prepare()"
         prepare
     fi
 }
@@ -430,7 +430,7 @@ run_prepare() {
 
 run_build() {
     if [[ "$(type -t build)" == "function" ]]; then
-        print1 "Starting build()"
+        msg1 "Starting build()"
         build
     fi
 }
@@ -438,7 +438,7 @@ run_build() {
 
 run_check() {
     if [[ "$(type -t check)" == "function" ]]; then
-        print1 "Starting check()"
+        msg1 "Starting check()"
         check
     fi
 }
@@ -449,13 +449,13 @@ run_package() {
         error "No package() function in PKGBUILD."
     fi
     mkdir -p "${pkgdir}"
-    print1 "Starting package()"
+    msg1 "Starting package()"
     package
 }
 
 
 install_docs() {
-    print1 "Installing docs..."
+    msg1 "Installing docs..."
     install_copyright
     install_changelog
 }
@@ -464,7 +464,7 @@ install_docs() {
 install_copyright() {
     if [[ -n "${copyright}" ]]; then
         if [[ -f "${startdir}/${changelog}" ]]; then
-            print2 "copyright"
+            msg2 "copyright"
             mkdir -p "${pkgdir}/usr/share/doc/${pkgname}"
             cat "${startdir}/${copyright}" >\
                 "${pkgdir}/usr/share/doc/${pkgname}/copyright"
@@ -478,7 +478,7 @@ install_copyright() {
 install_changelog() {
     if [[ -n "${changelog}" ]]; then
         if [[ -f "${startdir}/${changelog}" ]]; then
-            print1 "changelog.Debian.gz"
+            msg1 "changelog.Debian.gz"
             mkdir -p "${pkgdir}/usr/share/doc/${pkgname}"
             gzip -9 < "${startdir}/${changelog}" >\
                 "${pkgdir}/usr/share/doc/${pkgname}/changelog.gz"
@@ -490,7 +490,7 @@ install_changelog() {
 
 
 make_debian() {
-    print1 "Creating DEBIAN directory..."
+    msg1 "Creating DEBIAN directory..."
     mkdir -p "${pkgdir}/DEBIAN"
     make_debian_control
     make_debian_conffiles
@@ -502,7 +502,7 @@ make_debian() {
 
 
 make_debian_control() {
-    print2 "DEBIAN/control"
+    msg2 "DEBIAN/control"
     local control="${pkgdir}/DEBIAN/control"
     true >"${control}"
 
@@ -510,7 +510,11 @@ make_debian_control() {
     echo "Package: ${pkgname}" >>"${control}"
 
     # Version
-    echo "Version: ${pkgver}" >>"${control}"
+    if [[ -n "$pkgrel" ]]; then
+        echo "Version: ${pkgver}-${pkgrel}" >>"${control}"
+    else
+        echo "Version: ${pkgver}" >>"${control}"
+    fi
 
     # Section
     if [[ -n "${section}" ]]; then
@@ -547,6 +551,8 @@ make_debian_control() {
     # Depends
     if [[ ${#depends[@]} -gt 0 ]]; then
         echo "Depends: $(dependency_string "${depends[@]}")" >>"${control}"
+    else
+        echo "Depends: " >>"${control}"
     fi
 
     # Pre-Depends
@@ -639,7 +645,7 @@ dependency_string() {
 
 make_debian_conffiles() {
     if [[ ${#conffiles[@]} -gt 0 ]]; then
-        print2 "DEBIAN/conffiles"
+        msg2 "DEBIAN/conffiles"
         local outfile="${pkgdir}/DEBIAN/conffiles"
         true >"${outfile}"
         for file in "${conffiles[@]}"; do
@@ -660,7 +666,7 @@ make_debian_preinst() {
         (has_function pre_install "${startdir}/${install}" || \
          has_function pre_upgrade "${startdir}/${install}")
     then
-        print2 "DEBIAN/preinst"
+        msg2 "DEBIAN/preinst"
         local file="${pkgdir}/DEBIAN/preinst"
 cat >"$file" <<EOF
 #!/bin/bash -e
@@ -701,7 +707,7 @@ make_debian_postinst() {
         (has_function post_install "${startdir}/${install}" || \
          has_function post_upgrade "${startdir}/${install}")
     then
-        print2 "DEBIAN/postinst"
+        msg2 "DEBIAN/postinst"
         local file="${pkgdir}/DEBIAN/postinst"
 cat >"$file" <<EOF
 #!/bin/bash -e
@@ -748,7 +754,7 @@ make_debian_prerm() {
     if [[ -n "$install" && -f "${startdir}/${install}" ]] && \
         has_function pre_remove "${startdir}/${install}"
     then
-        print2 "DEBIAN/prerm"
+        msg2 "DEBIAN/prerm"
         local file="${pkgdir}/DEBIAN/prerm"
 cat >"$file" <<EOF
 #!/bin/bash -e
@@ -778,7 +784,7 @@ make_debian_postrm() {
         (has_function post_remove "${startdir}/${install}" || \
          has_function post_purge "${startdir}/${install}")
     then
-        print2 "DEBIAN/postrm"
+        msg2 "DEBIAN/postrm"
         local file="${pkgdir}/DEBIAN/postrm"
 cat >"$file" <<EOF
 #!/bin/bash -e
@@ -830,7 +836,7 @@ EOF
 
 
 update_size() {
-    print1 "Updating Installed-Size..."
+    msg1 "Updating Installed-Size..."
     local size
     size=$(du -ks --apparent-size "${pkgdir}" | cut -f1)
     sed -i "s/__INSTALLED_SIZE__/${size}/g" "${pkgdir}/DEBIAN/control"
@@ -839,29 +845,32 @@ update_size() {
 
 gen_sums() {
     cd "${pkgdir}" || exit 1
-    find  -type f ! \
-        -regex '.*.hg.*' ! \
-        -regex '.*?debian-binary.*' ! \
-        -regex '.*?DEBIAN.*' -printf '%P ' | \
-        xargs md5sum > "${pkgdir}/DEBIAN/md5sums"
+    find  -type f \
+        ! -regex '.*?debian-binary.*' \
+        ! -regex '.*?DEBIAN.*' -printf '%P\n' | \
+        xargs -d '\n' md5sum > "${pkgdir}/DEBIAN/md5sums"
     cd "${startdir}"
 }
 
 
 build_deb() {
-    print1 "Creating package '${pkgname}'..."
+    msg1 "Creating package '${pkgname}'..."
     dpkg-deb --build "${startdir}/${pkgname}-${pkgver}-${pkgrel}"
 }
 
 
 check_deb() {
-    print1 "Linting '${pkgname}-${pkgver}-${pkgrel}.deb'..."
-    lintian "${startdir}/${pkgname}-${pkgver}-${pkgrel}.deb"
+    if [[ "$nolint" -gt 0 ]]; then
+        msg1 "Skipping linting '${pkgname}-${pkgver}-${pkgrel}.deb'..."
+    else
+        msg1 "Linting '${pkgname}-${pkgver}-${pkgrel}.deb'..."
+        lintian "${startdir}/${pkgname}-${pkgver}-${pkgrel}.deb"
+    fi
 }
 
 
 print_completion_message() {
-    print1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
+    msg1 "Finished making: ${pkgname} ${pkgver}-${pkgrel} ($(date_string))"
 }
 
 
@@ -878,11 +887,11 @@ cleanup() {
             fi
         fi
         if [[ "$REMOVE_DEPENDS" -ne 0 ]]; then
-            print1 "Removing dependencies installed earlier..."
+            msg1 "Removing dependencies installed earlier..."
             for package in "${installed_depends[@]}"; do
-                print2 "${package}"
+                msg2 "${package}"
                 if ! sudo apt-get purge --yes "${package}"; then
-                    warn "Failed to remove ${package}."
+                    warning "Failed to remove ${package}."
                 fi
             done
         fi
@@ -937,7 +946,7 @@ run_build
 run_check
 
 # fakeroot
-print1 "Entering fakeroot environment..."
+msg1 "Entering fakeroot environment..."
     fakeroot bash <<EOF
 
 declare pkgname=""
@@ -976,10 +985,10 @@ declare -r ANSI_GREEN='\033[0;32m'
 declare -r ANSI_YELLOW='\033[0;33m'
 declare -r ANSI_BLUE='\033[0;34m'
 
-$(declare -f print1)
-$(declare -f print2)
-$(declare -f print3)
-$(declare -f warn)
+$(declare -f msg1)
+$(declare -f msg2)
+$(declare -f msg3)
+$(declare -f warning)
 $(declare -f error)
 $(declare -f join)
 $(declare -f strip)
@@ -1020,7 +1029,8 @@ gen_sums
 build_deb
 
 EOF
-print1 "Leaving fakeroot environment..."
+
+msg1 "Leaving fakeroot environment..."
 
 
 # post fakeroot
