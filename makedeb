@@ -354,7 +354,7 @@ validate_sources() {
     if ! _validate_sources sha384sum; then
         failed=1
     fi
-    if ! _validate_sources sha512; then
+    if ! _validate_sources sha512sum; then
         failed=1
     fi
     if [[ $failed -gt 0 ]]; then
