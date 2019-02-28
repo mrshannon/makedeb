@@ -118,7 +118,7 @@ join() {
 }
 
 
-strip() {
+stripstr() {
     sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
@@ -176,7 +176,7 @@ version_compare() {
 # the maintainer field in PKGBUILD for makedeb
 read_maintainer() {
     maintainer=$(grep -Po -m 1 '(?<=Maintainer:).*$' "${startdir}/PKGBUILD")
-    maintainer=$(echo "$maintainer" | strip)
+    maintainer=$(echo "$maintainer" | stripstr)
 }
 
 
@@ -218,9 +218,9 @@ check_depends() {
         IFS='|' read -r -a packages <<< "${package_string}"
         found=""
         for package in "${packages[@]}"; do
-            name=$(echo "$package" | strip | grep -o '^[^<=>]*')
-            op=$(echo "$package" | strip | grep -Po "(?<=^$name)"'[<=>]*')
-            required_version=$(echo "$package" | strip | \
+            name=$(echo "$package" | stripstr | grep -o '^[^<=>]*')
+            op=$(echo "$package" | stripstr | grep -Po "(?<=^$name)"'[<=>]*')
+            required_version=$(echo "$package" | stripstr | \
                 grep -Po "(?<=^$name$op)"'[0-9\.]*')
             installed_version=$(dpkg -s "${name}" 2>/dev/null | \
                 grep -Po '(?<=Version: )[0-9\.]*')
@@ -625,11 +625,9 @@ dependency_string() {
         IFS='|' read -r -a packages <<< "${package_string}"
         tmp=()
         for package in "${packages[@]}"; do
-            name=$(echo "$package" | strip | grep -o '^[^<=>]*')
-            # echo "before" 1>&2
-            op=$(echo "$package" | strip | grep -Po "(?<=^${name//+/\\+})"'[<=>]*')
-            # echo "after" 1>&2
-            version=$(echo "$package" | strip | \
+            name=$(echo "$package" | stripstr | grep -o '^[^<=>]*')
+            op=$(echo "$package" | stripstr | grep -Po "(?<=^${name//+/\\+})"'[<=>]*')
+            version=$(echo "$package" | stripstr | \
                 grep -Po "(?<=^${name//+/\\+}${op})"'[0-9\.]*')
             if [[ -n ${version} ]]; then
                 tmp+=("${name} (${op} ${version})")
@@ -991,7 +989,7 @@ $(declare -f msg3)
 $(declare -f warning)
 $(declare -f error)
 $(declare -f join)
-$(declare -f strip)
+$(declare -f stripstr)
 
 $(declare -f read_maintainer)
 $(declare -f validate_pkgbuild)
