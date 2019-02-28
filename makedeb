@@ -421,6 +421,7 @@ extract_sources() {
 
 
 run_prepare() {
+    cd "${startdir}"
     if [[ "$(type -t prepare)" == "function" ]]; then
         msg1 "Starting prepare()"
         prepare
@@ -429,6 +430,7 @@ run_prepare() {
 
 
 run_build() {
+    cd "${startdir}"
     if [[ "$(type -t build)" == "function" ]]; then
         msg1 "Starting build()"
         build
@@ -437,6 +439,7 @@ run_build() {
 
 
 run_check() {
+    cd "${startdir}"
     if [[ "$(type -t check)" == "function" ]]; then
         msg1 "Starting check()"
         check
@@ -445,6 +448,7 @@ run_check() {
 
 
 run_package() {
+    cd "${startdir}"
     if [[ "$(type -t package)" != "function" ]]; then
         error "No package() function in PKGBUILD."
     fi
